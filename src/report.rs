@@ -14,7 +14,13 @@ impl<S> Report<S>
 where
     S: MessageSpan + std::fmt::Debug,
 {
-    pub fn display(self) {
+    pub fn display<C>(self, colors: C)
+    where
+        C: Iterator<Item = (u8, u8, u8)>,
+    {
+        let colors = colors.take(self.messages.len()).collect::<Vec<_>>();
+        println!("Goolors {:?}", colors);
+
         #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy)]
         struct MsgID(usize);
 
@@ -193,25 +199,40 @@ where
             id: Option<MsgID>,
             b: u8,
         }
+        #[derive(Debug, Clone)]
+        struct BoardRow {
+            line: Option<usize>,
+            cells: Vec<BoardCell>,
+        }
+        impl BoardRow {
+            pub fn recolor<S: MessageSpan>(&mut self, span: S, id: Option<MsgID>) {
+                for i in span.start()..span.end() {
+                    self.cells[i].id = id
+                }
+            }
+        }
 
-        let mut board: Vec<(Option<usize>, Vec<BoardCell>)> = vec![];
+        let mut board: Vec<BoardRow> = vec![];
 
         for (line, info) in &final_lines {
             let s = lines[*line].line.trim_end();
 
-            board.push((
-                Some(*line),
-                (" ".repeat(extra_space_left)
+            board.push(BoardRow {
+                line: Some(*line),
+                cells: (" ".repeat(extra_space_left)
                     + s
                     + &" ".repeat(max_line - extra_space_left - s.len()))
                     .as_bytes()
                     .iter()
                     .map(|v| BoardCell { id: None, b: *v })
                     .collect::<Vec<_>>(),
-            ));
+            });
 
             for _ in 0..(info.spacing) {
-                board.push((None, vec![BoardCell { id: None, b: b' ' }; max_line]));
+                board.push(BoardRow {
+                    line: None,
+                    cells: vec![BoardCell { id: None, b: b' ' }; max_line],
+                });
             }
         }
 
@@ -219,15 +240,25 @@ where
         //     line: usize,
         //     msgs: Vec<LinearMsg<S>>,
         // }
-        println!("final lines {:#?}", final_lines);
+        println!("final lines {:#?}\n-------------------", final_lines);
         // println!("max {:#?}", max_line);
         // println!("extra_space_left {:#?}", extra_space_left);
 
-        for (line, i) in board {
+        for row in board {
             println!(
-                "{:?}: {}",
-                line,
-                i.iter().map(|c| c.b as char).collect::<String>()
+                "{}",
+                // line,
+                row.cells
+                    .iter()
+                    .map(|c| {
+                        if let Some(id) = c.id {
+                            let (r, g, b) = colors[id.0];
+                            (c.b as char).to_string().truecolor(r, g, b).to_string()
+                        } else {
+                            (c.b as char).to_string()
+                        }
+                    })
+                    .collect::<String>()
             )
             // println!("{:?}", i);
         }
