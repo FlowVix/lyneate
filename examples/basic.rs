@@ -11,20 +11,21 @@ fn main() {
         include_str!("basic.pseudo"),
         [
             (
-                22..104,
+                29..102,
                 format!("{}", "In this match expression".dimmed()),
                 (255, 64, 112),
             ),
             (
-                52..58,
+                64..75,
                 format!("{} {}", "This is of type".dimmed(), "int".bright_white()),
                 (255, 159, 64),
             ),
             (
-                95..100,
+                87..92,
                 format!("{} {}", "This is of type".dimmed(), "string".bright_white()),
                 (207, 255, 64),
             ),
+            // (13..84, format!("{}", "agaga".dimmed()), (255, 0, 255)),
         ],
     );
 

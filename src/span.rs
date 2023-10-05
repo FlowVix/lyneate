@@ -1,4 +1,6 @@
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+use std::fmt::Debug;
+
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
 pub(crate) struct MessageSpan {
     pub(crate) start: usize,
     pub(crate) end: usize,
@@ -53,6 +55,12 @@ impl MessageSpan {
                 )
             }
         }
+    }
+}
+
+impl Debug for MessageSpan {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}..{}", self.start, self.end)
     }
 }
 

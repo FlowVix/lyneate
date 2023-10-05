@@ -3,7 +3,10 @@ use std::{collections::BTreeMap, ops::Range};
 use colored::Colorize;
 use widestring::{Utf32Str, Utf32String};
 
-use crate::span::{byte_span_to_char_span, MessageSpan};
+use crate::{
+    span::{byte_span_to_char_span, MessageSpan},
+    Theme,
+};
 
 type Color = (u8, u8, u8);
 
@@ -14,6 +17,7 @@ pub struct Report<'a, I> {
     code: Utf32String,
     messages: I,
     realign: Option<&'a str>,
+    pub theme: Theme,
 }
 
 impl<'a, I> Report<'a, I>
@@ -28,6 +32,7 @@ where
             code: code_utf32,
             messages,
             realign: Some(code),
+            theme: Theme::default(),
         }
     }
     /// Creates a new report from source code and messages with char-aligned spans.
@@ -38,7 +43,13 @@ where
             code: code_utf32,
             messages,
             realign: None,
+            theme: Theme::default(),
         }
+    }
+
+    pub fn with_theme(mut self, theme: Theme) -> Self {
+        self.theme = theme;
+        self
     }
 
     /// Prettily displays the code report.
@@ -203,6 +214,8 @@ where
             start_line: usize,
             end_line: usize,
 
+            spacing_end: usize,
+
             msg: String,
 
             color: Color,
@@ -218,7 +231,7 @@ where
             .iter()
             .map(|g| g.msgs.len())
             .max()
-            .map(|v| v * 2 + 1)
+            .map(|v| v * (self.theme.sizing.side_pointer_length + 1) + 1)
             .unwrap_or(0);
 
         for (line, msgs) in linear {
@@ -237,7 +250,8 @@ where
                 let fline = final_lines.get_mut(&line).unwrap();
 
                 fline.underline_highlights.push((msg.span, msg.color));
-                fline.spacing += if fline.spacing == 0 { 3 } else { 2 };
+                fline.spacing +=
+                    if fline.spacing == 0 { 2 } else { 1 } + self.theme.sizing.underline_spacing;
 
                 let middle = msg.span.start + msg.span.size() / 2;
                 let connector_pos = 'outer: {
@@ -284,31 +298,45 @@ where
                         msg.color,
                     ));
                 }
-                let depth = {
-                    let line = final_lines.entry(msg.end_line).or_insert(FinalLine::new());
+                let (spacing_end, depth) = {
+                    let hl_line = final_lines.entry(msg.end_line).or_insert(FinalLine::new());
 
-                    line.multiline_highlights.push((
+                    hl_line.multiline_highlights.push((
                         MessageSpan {
                             start: 0,
                             end: msg.end_len,
                         },
                         msg.color,
                     ));
-                    line.spacing += 2;
-                    line.spacing
+
+                    let spacing_end = msg.end_line.max(group.last_line);
+
+                    let spacing_line = final_lines.entry(spacing_end).or_insert(FinalLine::new());
+
+                    spacing_line.spacing += 2;
+                    (spacing_end, spacing_line.spacing)
                 };
+
                 multiline_commands.push(MultilineCommand {
                     start_line: msg.start_line,
                     end_line: msg.end_line,
                     msg: msg.msg,
                     color: msg.color,
-                    depth: depth - 1,
+                    depth,
                     side_height: side,
+                    spacing_end,
                 })
             }
         }
 
-        let max_line = lines.iter().map(|l| l.line.len()).max().unwrap_or(0) + 4 + side_space;
+        {
+            let keys = final_lines.keys().copied().collect::<Vec<_>>();
+            for idx in keys {
+                if final_lines[&idx].spacing == 0 && !final_lines.contains_key(&(idx + 1)) {
+                    final_lines.get_mut(&idx).unwrap().spacing += 1;
+                }
+            }
+        }
 
         #[derive(Debug, Clone, Copy)]
         struct BoardCell {
@@ -324,25 +352,48 @@ where
         impl BoardRow {
             pub fn recolor(&mut self, span: MessageSpan, color: Option<Color>) {
                 for i in span.start..span.end {
-                    if let Some(c) = self.cells.get_mut(i) {
+                    if let Some(c) = self.get_cell(i) {
                         c.color = color;
                     }
                 }
             }
-            pub fn write(&mut self, text: &str, start: usize) {
+            pub fn _write(&mut self, text: &str, start: usize) {
                 for (i, ch) in text.chars().enumerate() {
-                    if let Some(c) = self.cells.get_mut(i + start) {
-                        c.ch = ch;
-                    }
+                    self.write_char(ch, i + start);
                 }
             }
             pub fn write_colored(&mut self, text: &str, start: usize, color: Option<Color>) {
                 for (i, ch) in text.chars().enumerate() {
-                    if let Some(c) = self.cells.get_mut(i + start) {
-                        c.ch = ch;
-                        c.color = color;
-                    }
+                    self.write_colored_char(ch, i + start, color);
                 }
+            }
+            pub fn write_char(&mut self, ch: char, idx: usize) {
+                if let Some(c) = self.get_cell(idx) {
+                    c.ch = ch;
+                }
+            }
+            pub fn write_colored_char(&mut self, ch: char, idx: usize, color: Option<Color>) {
+                if let Some(c) = self.get_cell(idx) {
+                    c.ch = ch;
+                    c.color = color;
+                }
+            }
+            pub fn get_cell(&mut self, idx: usize) -> Option<&mut BoardCell> {
+                if self.end_str.is_some() {
+                    return self.cells.get_mut(idx);
+                }
+
+                if idx >= self.cells.len() {
+                    self.cells.resize(
+                        idx + 1,
+                        BoardCell {
+                            color: None,
+                            ch: ' ',
+                        },
+                    );
+                }
+
+                self.cells.get_mut(idx)
             }
         }
 
@@ -353,27 +404,17 @@ where
 
             board.push(BoardRow {
                 line: Some(*line),
-                cells: (Utf32String::from(" ").repeat(side_space)
-                    + s
-                    + Utf32String::from(" ")
-                        .repeat(max_line - side_space - s.len())
-                        .as_utfstr())
-                .chars()
-                .map(|v| BoardCell { color: None, ch: v })
-                .collect::<Vec<_>>(),
+                cells: (Utf32String::from(" ").repeat(side_space) + s)
+                    .chars()
+                    .map(|v| BoardCell { color: None, ch: v })
+                    .collect::<Vec<_>>(),
                 end_str: None,
             });
 
             for _ in 0..(info.spacing) {
                 board.push(BoardRow {
                     line: None,
-                    cells: vec![
-                        BoardCell {
-                            color: None,
-                            ch: ' '
-                        };
-                        max_line
-                    ],
+                    cells: vec![],
                     end_str: None,
                 });
             }
@@ -400,32 +441,88 @@ where
         for MultilineCommand {
             start_line,
             end_line,
+            spacing_end,
             msg,
             color,
             depth,
             side_height,
         } in multiline_commands
         {
-            let horiz = side_space - side_height * 2 - 3;
+            let horiz = side_space
+                - side_height * (self.theme.sizing.side_pointer_length + 1)
+                - 2
+                - self.theme.sizing.side_pointer_length;
             let start_line = shifted_line(start_line);
             let end_line = shifted_line(end_line);
+            let spacing_end = shifted_line(spacing_end);
 
             #[allow(clippy::needless_range_loop)]
             for i in (start_line + 1)..end_line {
                 let spacing = board[i].line.is_none();
-                board[i].write_colored(if spacing { "╵" } else { "│" }, horiz, Some(color));
+                board[i].write_colored_char(
+                    if spacing {
+                        self.theme.chars.side_vertical_dotted
+                    } else {
+                        self.theme.chars.side_vertical
+                    },
+                    horiz,
+                    Some(color),
+                );
             }
 
-            board[start_line].write_colored("╭▶", horiz, Some(color));
-            board[end_line].write_colored("├▶", horiz, Some(color));
+            {
+                let arm = match self.theme.sizing.side_pointer_length {
+                    0 => "".into(),
+                    _ => format!(
+                        "{}{}",
+                        self.theme
+                            .chars
+                            .side_pointer_line
+                            .to_string()
+                            .repeat(self.theme.sizing.side_pointer_length - 1),
+                        self.theme.chars.side_pointer
+                    ),
+                };
 
-            for i in 0..depth {
-                board[end_line + i + 1].write_colored("│", horiz, Some(color))
+                board[start_line].write_colored(
+                    &format!("{}{}", self.theme.chars.top_curve, arm),
+                    horiz,
+                    Some(color),
+                );
+                board[end_line].write_colored(
+                    &format!("{}{}", self.theme.chars.side_junction, arm),
+                    horiz,
+                    Some(color),
+                );
+            }
+
+            #[allow(clippy::needless_range_loop)]
+            for i in (end_line + 1)..(spacing_end + depth) {
+                board[i].write_colored_char(self.theme.chars.side_vertical, horiz, Some(color))
             }
             {
-                let line = &mut board[end_line + depth + 1];
-                line.write_colored("╰──", horiz, Some(color));
-                line.cells.truncate(horiz + 3);
+                let line = &mut board[spacing_end + depth];
+
+                let arm = match self.theme.sizing.side_arm_length {
+                    0 => "".into(),
+                    _ => format!(
+                        "{}{}",
+                        self.theme
+                            .chars
+                            .msg_line
+                            .to_string()
+                            .repeat(self.theme.sizing.side_arm_length - 1),
+                        self.theme.chars.msg_pointer
+                    ),
+                };
+
+                line.write_colored(
+                    &format!("{}{}", self.theme.chars.bottom_curve, arm),
+                    horiz,
+                    Some(color),
+                );
+                line.cells
+                    .truncate(horiz + self.theme.sizing.side_arm_length + 1);
                 line.end_str = Some(msg)
             }
         }
@@ -441,41 +538,68 @@ where
         {
             let line = shifted_line(line) + 1;
             board[line].write_colored(
-                &"─".repeat(span.size()),
+                &self.theme.chars.underline.to_string().repeat(span.size()),
                 span.start + side_space,
                 Some(color),
             );
-            board[line].write("┬", connector_pos + side_space);
+            board[line].write_char(
+                self.theme.chars.underline_junction,
+                connector_pos + side_space,
+            );
             for i in 0..(depth - 1) {
-                board[line + i + 1].write_colored("│", connector_pos + side_space, Some(color))
+                board[line + i + 1].write_colored_char(
+                    self.theme.chars.underline_vertical,
+                    connector_pos + side_space,
+                    Some(color),
+                )
             }
-            let arm = connector_pos + side_space;
+            let arm_start = connector_pos + side_space;
             {
                 let line = &mut board[line + depth];
-                line.write_colored("╰──", arm, Some(color));
-                line.cells.truncate(arm + 3);
+
+                let arm = match self.theme.sizing.underline_arm_length {
+                    0 => "".into(),
+                    _ => format!(
+                        "{}{}",
+                        self.theme
+                            .chars
+                            .msg_line
+                            .to_string()
+                            .repeat(self.theme.sizing.underline_arm_length - 1),
+                        self.theme.chars.msg_pointer
+                    ),
+                };
+
+                line.write_colored(
+                    &format!("{}{}", self.theme.chars.bottom_curve, arm),
+                    arm_start,
+                    Some(color),
+                );
+                line.cells
+                    .truncate(arm_start + self.theme.sizing.underline_arm_length + 1);
                 line.end_str = Some(msg)
             }
         }
 
         let max_line_num_len = (final_lines.last_key_value().unwrap().0 + 1).ilog10() as usize + 1;
-        let empty_pad = " ".repeat(max_line_num_len + 3);
+        let empty_pad = format!("{} ", " ".repeat(max_line_num_len));
 
         for row in board {
             println!(
-                "   {}{} {}",
+                "   {}  {} {}",
                 row.line
-                    .map(|v| format!("{:>max_line_num_len$}.  ", v + 1)
-                        .dimmed()
-                        .to_string())
-                    .unwrap_or(empty_pad.clone()),
+                    .map(|v| (self.theme.effects.line_numbers)(&format!(
+                        "{:>max_line_num_len$}.",
+                        v + 1
+                    )))
+                    .unwrap_or((self.theme.effects.line_numbers)(&empty_pad)),
                 row.cells
                     .iter()
                     .map(|c| {
                         if let Some((r, g, b)) = c.color {
                             c.ch.to_string().truecolor(r, g, b).to_string()
                         } else {
-                            c.ch.to_string()
+                            (self.theme.effects.unhighlighted)(&c.ch.to_string())
                         }
                     })
                     .collect::<String>(),
