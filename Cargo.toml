@@ -1,9 +1,11 @@
 [package]
 name = "lyneate"
+authors = ["FlowVix <flowvix@gmail.com>"]
 version = "0.1.0"
 edition = "2021"
 license = "MIT"
 description = "A crate for beautiful code underlining and error reporting"
+exclude = ["examples/example.png"]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
