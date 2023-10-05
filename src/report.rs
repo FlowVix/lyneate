@@ -1,9 +1,9 @@
-use std::collections::BTreeMap;
+use std::{collections::BTreeMap, ops::Range};
 
 use colored::Colorize;
 use widestring::{Utf32Str, Utf32String};
 
-use crate::{span::MessageSpan, util::byte_span_to_char_span};
+use crate::span::{byte_span_to_char_span, MessageSpan};
 
 type Color = (u8, u8, u8);
 
@@ -16,10 +16,9 @@ pub struct Report<'a, I> {
     realign: Option<&'a str>,
 }
 
-impl<'a, I, S> Report<'a, I>
+impl<'a, I> Report<'a, I>
 where
-    S: MessageSpan + std::fmt::Debug + Copy,
-    I: IntoIterator<Item = (S, String, Color)>,
+    I: IntoIterator<Item = (Range<usize>, String, Color)>,
 {
     /// Creates a new report from source code and messages with byte-aligned spans.
     pub fn new_byte_spanned(code: &'a str, messages: I) -> Self {
@@ -88,9 +87,9 @@ where
         };
 
         #[derive(Debug, Clone)]
-        struct LinearMsg<S: std::fmt::Debug> {
+        struct LinearMsg {
             color: Color,
-            span: S,
+            span: MessageSpan,
             msg: String,
         }
         #[derive(Debug, Clone)]
@@ -106,18 +105,22 @@ where
             msg: String,
         }
 
-        let mut linear: BTreeMap<usize, Vec<LinearMsg<S>>> = BTreeMap::new();
+        let mut linear: BTreeMap<usize, Vec<LinearMsg>> = BTreeMap::new();
         let mut multiline: Vec<MultilineMsg> = vec![];
 
         for (span, msg, color) in self.messages {
+            let span = MessageSpan {
+                start: span.start,
+                end: span.end,
+            };
             let span = if let Some(code) = self.realign {
                 byte_span_to_char_span(code, span)
             } else {
                 span
             };
 
-            let start_line = get_line(span.start());
-            let end_line = get_line(span.end());
+            let start_line = get_line(span.start);
+            let end_line = get_line(span.end);
 
             if start_line == end_line {
                 linear.entry(start_line).or_default().push(LinearMsg {
@@ -130,8 +133,8 @@ where
                     color,
                     start_line,
                     end_line,
-                    pre_len: span.start() - lines[start_line].start,
-                    end_len: span.end() - lines[end_line].start,
+                    pre_len: span.start - lines[start_line].start,
+                    end_len: span.end - lines[end_line].start,
                     msg,
                 })
             }
@@ -183,13 +186,13 @@ where
         }
         let mut final_lines = linear
             .keys()
-            .map(|l| (*l, FinalLine::<S>::new()))
+            .map(|l| (*l, FinalLine::new()))
             .collect::<BTreeMap<_, _>>();
 
         #[derive(Debug, Clone)]
-        struct UnderlineCommand<S> {
+        struct UnderlineCommand {
             line: usize,
-            span: S,
+            span: MessageSpan,
             msg: String,
             color: Color,
             depth: usize,
@@ -208,7 +211,7 @@ where
             side_height: usize,
         }
 
-        let mut underline_commands: Vec<UnderlineCommand<S>> = vec![];
+        let mut underline_commands: Vec<UnderlineCommand> = vec![];
         let mut multiline_commands: Vec<MultilineCommand> = vec![];
 
         let side_space = multiline_groups
@@ -236,23 +239,23 @@ where
                 fline.underline_highlights.push((msg.span, msg.color));
                 fline.spacing += if fline.spacing == 0 { 3 } else { 2 };
 
-                let middle = msg.span.start() + msg.span.len() / 2;
+                let middle = msg.span.start + msg.span.len() / 2;
                 let connector_pos = 'outer: {
                     let mut max_span = None;
                     for span in spans {
-                        let diff = if (span.start()..span.end()).contains(&middle) {
-                            break 'outer span.start() + span.len() / 2;
-                        } else if span.end() <= middle {
-                            middle - span.end()
+                        let diff = if (span.start..span.end).contains(&middle) {
+                            break 'outer span.start + span.len() / 2;
+                        } else if span.end <= middle {
+                            middle - span.end
                         } else {
-                            span.start() - middle - 1
+                            span.start - middle - 1
                         };
                         if max_span.is_none() || max_span.is_some_and(|(_, v)| diff < v) {
                             max_span = Some((span, diff))
                         }
                     }
                     max_span
-                        .map(|(s, _)| s.start() + s.len() / 2)
+                        .map(|(s, _)| s.start + s.len() / 2)
                         .unwrap_or(middle)
                 };
 
@@ -271,20 +274,26 @@ where
                 {
                     let line = final_lines
                         .entry(msg.start_line)
-                        .or_insert(FinalLine::<S>::new());
+                        .or_insert(FinalLine::new());
 
                     line.multiline_highlights.push((
-                        S::from_range(msg.pre_len..lines[msg.start_line].line.trim_end().len()),
+                        MessageSpan {
+                            start: msg.pre_len,
+                            end: lines[msg.start_line].line.trim_end().len(),
+                        },
                         msg.color,
                     ));
                 }
                 let depth = {
-                    let line = final_lines
-                        .entry(msg.end_line)
-                        .or_insert(FinalLine::<S>::new());
+                    let line = final_lines.entry(msg.end_line).or_insert(FinalLine::new());
 
-                    line.multiline_highlights
-                        .push((S::from_range(0..msg.end_len), msg.color));
+                    line.multiline_highlights.push((
+                        MessageSpan {
+                            start: 0,
+                            end: msg.end_len,
+                        },
+                        msg.color,
+                    ));
                     line.spacing += 2;
                     line.spacing
                 };
@@ -313,8 +322,8 @@ where
             end_str: Option<String>,
         }
         impl BoardRow {
-            pub fn recolor<S: MessageSpan>(&mut self, span: S, color: Option<Color>) {
-                for i in span.start()..span.end() {
+            pub fn recolor(&mut self, span: MessageSpan, color: Option<Color>) {
+                for i in span.start..span.end {
                     if let Some(c) = self.cells.get_mut(i) {
                         c.color = color;
                     }
@@ -433,7 +442,7 @@ where
             let line = shifted_line(line) + 1;
             board[line].write_colored(
                 &"─".repeat(span.len()),
-                span.start() + side_space,
+                span.start + side_space,
                 Some(color),
             );
             board[line].write("┬", connector_pos + side_space);
