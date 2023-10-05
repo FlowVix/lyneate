@@ -239,12 +239,12 @@ where
                 fline.underline_highlights.push((msg.span, msg.color));
                 fline.spacing += if fline.spacing == 0 { 3 } else { 2 };
 
-                let middle = msg.span.start + msg.span.len() / 2;
+                let middle = msg.span.start + msg.span.size() / 2;
                 let connector_pos = 'outer: {
                     let mut max_span = None;
                     for span in spans {
                         let diff = if (span.start..span.end).contains(&middle) {
-                            break 'outer span.start + span.len() / 2;
+                            break 'outer span.start + span.size() / 2;
                         } else if span.end <= middle {
                             middle - span.end
                         } else {
@@ -255,7 +255,7 @@ where
                         }
                     }
                     max_span
-                        .map(|(s, _)| s.start + s.len() / 2)
+                        .map(|(s, _)| s.start + s.size() / 2)
                         .unwrap_or(middle)
                 };
 
@@ -441,7 +441,7 @@ where
         {
             let line = shifted_line(line) + 1;
             board[line].write_colored(
-                &"─".repeat(span.len()),
+                &"─".repeat(span.size()),
                 span.start + side_space,
                 Some(color),
             );

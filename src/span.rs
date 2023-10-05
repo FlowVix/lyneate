@@ -1,5 +1,3 @@
-use std::ops::Range;
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(crate) struct MessageSpan {
     pub(crate) start: usize,
@@ -7,11 +5,8 @@ pub(crate) struct MessageSpan {
 }
 
 impl MessageSpan {
-    pub(crate) fn len(&self) -> usize {
+    pub(crate) fn size(&self) -> usize {
         self.end - self.start
-    }
-    pub(crate) fn is_empty(&self) -> bool {
-        self.len() == 0
     }
 
     pub(crate) fn sub(mut self, n: usize) -> Self {
