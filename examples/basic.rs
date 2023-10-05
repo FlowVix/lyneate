@@ -1,5 +1,5 @@
 use colored::Colorize;
-use lyneate::report::Report;
+use lyneate::Report;
 
 fn main() {
     println!(
