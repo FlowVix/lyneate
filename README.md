@@ -1,5 +1,9 @@
 # Lyneate
 
+[![crates.io](https://img.shields.io/crates/v/lyneate)](https://crates.io/crates/lyneate)
+[![license](https://img.shields.io/crates/l/lyneate)](https://github.com/FlowVix/lyneate/blob/master/LICENSE)
+[![docs.rs](https://img.shields.io/docsrs/lyneate)](https://docs.rs/lyneate)
+
 Display beautiful code reports in the terminal with
 support for single-line and multi-line highlighting.
 
