@@ -1,12 +1,24 @@
 use std::ops::Range;
 
+/// The result of overlaying a type implementing [`MessageSpan`] onto another.
+/// This result is what remains "visible" of the bottom span.
+///
+/// ```
+/// assert_eq!((10usize..15).overlay(13..17), SpanOverlay::Single(10..13));
+/// assert_eq!((10usize..15).overlay(6..12), SpanOverlay::Single(12..15));
+/// assert_eq!(
+///     (10usize..15).overlay(12..13),
+///     SpanOverlay::Double(10..12, 13..15)
+/// );
+/// ```
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum SpanOverlay<S> {
     None,
     Single(S),
     Double(S, S),
 }
 
-impl<S: MessageSpan> Iterator for SpanOverlay<S> {
+impl<S: MessageSpan + Copy> Iterator for SpanOverlay<S> {
     type Item = S;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -26,30 +38,51 @@ impl<S: MessageSpan> Iterator for SpanOverlay<S> {
     }
 }
 
-pub trait MessageSpan: Copy {
-    fn start(self) -> usize;
-    fn end(self) -> usize;
+/// A trait to be implemented for types that represent a byte-aligned or char-aligned
+/// span of code.
+pub trait MessageSpan: Sized {
+    /// The start index of the span.
+    fn start(&self) -> usize;
+    /// The end index of the span.
+    fn end(&self) -> usize;
 
+    /// Creates a span from a [`Range<usize>`]
     fn from_range(r: Range<usize>) -> Self;
 
-    fn to_range(self) -> Range<usize> {
+    /// Converts the span from a [`Range<usize>`]
+    fn to_range(&self) -> Range<usize> {
         self.start()..self.end()
     }
 
-    fn len(self) -> usize {
+    /// The length of the span
+    fn len(&self) -> usize {
         self.end() - self.start()
     }
-    fn is_empty(self) -> bool {
+    /// Returns `true` if the length of the span is `0`
+    fn is_empty(&self) -> bool {
         self.len() == 0
     }
 
+    /// Shifts the span to the left by `n`
     fn sub(self, n: usize) -> Self {
         Self::from_range((self.start() - n)..(self.end() - n))
     }
+    /// Shifts the span to the right by `n`
     fn plus(self, n: usize) -> Self {
         Self::from_range((self.start() + n)..(self.end() + n))
     }
 
+    /// Overlays a type implementing [`MessageSpan`] onto another.
+    /// The result is what remains "visible" of the bottom span.
+    ///
+    /// ```
+    /// assert_eq!((10usize..15).overlay(13..17), SpanOverlay::Single(10..13));
+    /// assert_eq!((10usize..15).overlay(6..12), SpanOverlay::Single(12..15));
+    /// assert_eq!(
+    ///     (10usize..15).overlay(12..13),
+    ///     SpanOverlay::Double(10..12, 13..15)
+    /// );
+    /// ```
     fn overlay(self, over: Self) -> SpanOverlay<Self> {
         if over.start() == over.end() || over.end() <= self.start() || over.start() >= self.end() {
             return SpanOverlay::Single(self);
@@ -71,5 +104,19 @@ pub trait MessageSpan: Copy {
                 )
             }
         }
+    }
+}
+
+impl MessageSpan for Range<usize> {
+    fn start(&self) -> usize {
+        self.start
+    }
+
+    fn end(&self) -> usize {
+        self.end
+    }
+
+    fn from_range(r: Range<usize>) -> Self {
+        r
     }
 }

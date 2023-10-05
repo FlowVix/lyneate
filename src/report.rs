@@ -5,17 +5,20 @@ use widestring::{Utf32Str, Utf32String};
 
 use crate::{span::MessageSpan, util::byte_span_to_char_span};
 
+/// A code report containing the source code in UTF32 and the spans and text
+/// of all messages.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Report<S> {
-    pub code: Utf32String,
-    pub messages: Vec<(S, String)>,
+    code: Utf32String,
+    messages: Vec<(S, String)>,
 }
 
 impl<S> Report<S>
 where
-    S: MessageSpan + std::fmt::Debug,
+    S: MessageSpan + std::fmt::Debug + Copy,
 {
-    pub fn new(code: &str, mut messages: Vec<(S, String)>) -> Self {
+    /// Creates a new report from source code and messages with byte-aligned spans.
+    pub fn new_byte_spanned(code: &str, mut messages: Vec<(S, String)>) -> Self {
         let code_utf32 = Utf32String::from_str(code);
 
         for (s, _) in &mut messages {
@@ -27,8 +30,18 @@ where
             messages,
         }
     }
+    /// Creates a new report from source code and messages with char-aligned spans.
+    pub fn new_char_spanned(code: &str, messages: Vec<(S, String)>) -> Self {
+        let code_utf32 = Utf32String::from_str(code);
 
-    pub fn display<C>(mut self, colors: C)
+        Self {
+            code: code_utf32,
+            messages,
+        }
+    }
+
+    /// Prettily displays the code report.
+    pub fn display<C>(self, colors: C)
     where
         C: Iterator<Item = (u8, u8, u8)>,
     {
@@ -385,7 +398,7 @@ where
             #[allow(clippy::needless_range_loop)]
             for i in (start_line + 1)..end_line {
                 let spacing = board[i].line.is_none();
-                board[i].write_colored(if spacing { "┆" } else { "│" }, horiz, Some(id));
+                board[i].write_colored(if spacing { "╵" } else { "│" }, horiz, Some(id));
             }
 
             board[start_line].write_colored("╭▶", horiz, Some(id));
