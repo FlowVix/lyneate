@@ -1,12 +1,13 @@
 use std::collections::BTreeMap;
 
 use colored::Colorize;
+use widestring::{Utf32Str, Utf32String};
 
-use crate::span::MessageSpan;
+use crate::{span::MessageSpan, util::byte_span_to_char_span};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Report<S> {
-    pub code: String,
+    pub code: Utf32String,
     pub messages: Vec<(S, String)>,
 }
 
@@ -14,40 +15,63 @@ impl<S> Report<S>
 where
     S: MessageSpan + std::fmt::Debug,
 {
-    pub fn display<C>(self, colors: C)
+    pub fn new(code: &str, mut messages: Vec<(S, String)>) -> Self {
+        let code_utf32 = Utf32String::from_str(code);
+
+        for (s, _) in &mut messages {
+            *s = byte_span_to_char_span(code, *s);
+        }
+
+        Self {
+            code: code_utf32,
+            messages,
+        }
+    }
+
+    pub fn display<C>(mut self, colors: C)
     where
         C: Iterator<Item = (u8, u8, u8)>,
     {
         let colors = colors.take(self.messages.len()).collect::<Vec<_>>();
-        println!("Goolors {:?}", colors);
 
         #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy)]
         struct MsgID(usize);
 
         #[derive(Debug, Clone, Copy)]
         struct LineInfo<'a> {
-            line: &'a str,
+            line: &'a Utf32Str,
             start: usize,
             end: usize,
         }
 
         let lines = {
             let mut out = vec![];
-            let mut size = 0;
 
-            for s in self.code.split_inclusive('\n') {
-                out.push(LineInfo {
-                    line: s,
-                    start: size,
-                    end: size + s.len(),
-                });
-                size += s.len();
+            let mut start = 0;
+
+            macro_rules! s {
+                ($s:expr) => {
+                    #[allow(unused_assignments)]
+                    {
+                        out.push(LineInfo {
+                            line: $s,
+                            start,
+                            end: start + $s.len(),
+                        });
+                        start += $s.len();
+                    }
+                };
             }
+
+            for (i, c) in self.code.as_char_slice().iter().enumerate() {
+                if *c == '\n' {
+                    s!(&self.code[start..(i + 1)]);
+                }
+            }
+            s!(&self.code[start..self.code.len()]);
 
             out
         };
-
-        println!("{:#?}", lines);
 
         let get_line = |c: usize| {
             lines
@@ -55,8 +79,6 @@ where
                 .position(|line| line.start <= c && c < line.end)
                 .unwrap_or(lines.len() - 1)
         };
-
-        // stage 1
 
         #[derive(Debug, Clone)]
         struct LinearMsg<S: std::fmt::Debug> {
@@ -85,7 +107,7 @@ where
             let end_line = get_line(span.end());
 
             if start_line == end_line {
-                linear.entry(start_line).or_insert(vec![]).push(LinearMsg {
+                linear.entry(start_line).or_default().push(LinearMsg {
                     id: MsgID(id),
                     span: span.sub(lines[start_line].start),
                     msg,
@@ -131,83 +153,173 @@ where
             })
         }
 
-        // println!("linear {:#?}", linear_sorted);
-        // println!("multiline {:#?}", multiline_groups);
-        // println!("space left {}", extra_space_left);
-
         #[derive(Debug, Clone)]
         struct FinalLine<S> {
-            highlights: Vec<(S, MsgID)>,
+            underline_highlights: Vec<(S, MsgID)>,
+            multiline_highlights: Vec<(S, MsgID)>,
             spacing: usize,
         }
         impl<S> FinalLine<S> {
             pub fn new() -> Self {
                 Self {
-                    highlights: vec![],
+                    underline_highlights: vec![],
+                    multiline_highlights: vec![],
                     spacing: 0,
                 }
             }
         }
         let mut final_lines = linear
-            .iter()
-            .map(|(l, msgs)| (*l, FinalLine::<S>::new()))
+            .keys()
+            .map(|l| (*l, FinalLine::<S>::new()))
             .collect::<BTreeMap<_, _>>();
 
-        for group in &multiline_groups {
-            for msg in &group.msgs {
-                {
-                    let line = final_lines
-                        .entry(msg.start_line)
-                        .or_insert(FinalLine::<S>::new());
-
-                    line.highlights.push((
-                        S::from_range(msg.pre_len..lines[msg.start_line].line.trim_end().len()),
-                        msg.id,
-                    ));
-                    // line.spacing += 2;
-                }
-                {
-                    let line = final_lines
-                        .entry(msg.end_line)
-                        .or_insert(FinalLine::<S>::new());
-
-                    line.highlights
-                        .push((S::from_range(0..msg.end_len), msg.id));
-                    line.spacing += 2;
-                }
-            }
+        #[derive(Debug, Clone)]
+        struct UnderlineCommand<S> {
+            line: usize,
+            span: S,
+            msg: String,
+            id: MsgID,
+            depth: usize,
+            connector_pos: usize,
         }
-        for (line, msgs) in linear {
-            for msg in msgs {
-                let line = final_lines.get_mut(&line).unwrap();
+        #[derive(Debug, Clone)]
+        struct MultilineCommand {
+            start_line: usize,
+            end_line: usize,
 
-                line.highlights.push((msg.span, msg.id));
-                line.spacing += if line.spacing == 0 { 3 } else { 2 };
-            }
+            msg: String,
+
+            id: MsgID,
+
+            depth: usize,
+            side_height: usize,
         }
-        let extra_space_left = multiline_groups
+
+        let mut underline_commands: Vec<UnderlineCommand<S>> = vec![];
+        let mut multiline_commands: Vec<MultilineCommand> = vec![];
+
+        let side_space = multiline_groups
             .iter()
             .map(|g| g.msgs.len())
             .max()
             .map(|v| v * 2 + 1)
             .unwrap_or(0);
 
-        let max_line = lines.iter().map(|l| l.line.len()).max().unwrap_or(0) + 4 + extra_space_left;
+        for (line, msgs) in linear {
+            let mut visible_spans = msgs.iter().map(|l| vec![l.span]).collect::<Vec<_>>();
+
+            for i in 0..(visible_spans.len() - 1) {
+                for j in (i + 1)..visible_spans.len() {
+                    visible_spans[i] = visible_spans[i]
+                        .iter()
+                        .flat_map(|s| s.overlay(visible_spans[j][0]))
+                        .collect();
+                }
+            }
+
+            for (msg, spans) in msgs.into_iter().zip(visible_spans) {
+                let fline = final_lines.get_mut(&line).unwrap();
+
+                fline.underline_highlights.push((msg.span, msg.id));
+                fline.spacing += if fline.spacing == 0 { 3 } else { 2 };
+
+                let middle = msg.span.start() + msg.span.len() / 2;
+                let connector_pos = 'outer: {
+                    let mut max_span = None;
+                    for span in spans {
+                        let diff = if (span.start()..span.end()).contains(&middle) {
+                            break 'outer span.start() + span.len() / 2;
+                        } else if span.end() <= middle {
+                            middle - span.end()
+                        } else {
+                            span.start() - middle - 1
+                        };
+                        if max_span.is_none() || max_span.is_some_and(|(_, v)| diff < v) {
+                            max_span = Some((span, diff))
+                        }
+                    }
+                    max_span
+                        .map(|(s, _)| s.start() + s.len() / 2)
+                        .unwrap_or(middle)
+                };
+
+                underline_commands.push(UnderlineCommand {
+                    line,
+                    span: msg.span,
+                    msg: msg.msg,
+                    id: msg.id,
+                    depth: fline.spacing - 1,
+                    connector_pos,
+                })
+            }
+        }
+        for group in multiline_groups {
+            for (side, msg) in group.msgs.into_iter().enumerate() {
+                {
+                    let line = final_lines
+                        .entry(msg.start_line)
+                        .or_insert(FinalLine::<S>::new());
+
+                    line.multiline_highlights.push((
+                        S::from_range(msg.pre_len..lines[msg.start_line].line.trim_end().len()),
+                        msg.id,
+                    ));
+                }
+                let depth = {
+                    let line = final_lines
+                        .entry(msg.end_line)
+                        .or_insert(FinalLine::<S>::new());
+
+                    line.multiline_highlights
+                        .push((S::from_range(0..msg.end_len), msg.id));
+                    line.spacing += 2;
+                    line.spacing
+                };
+                multiline_commands.push(MultilineCommand {
+                    start_line: msg.start_line,
+                    end_line: msg.end_line,
+                    msg: msg.msg,
+                    id: msg.id,
+                    depth: depth - 1,
+                    side_height: side,
+                })
+            }
+        }
+
+        let max_line = lines.iter().map(|l| l.line.len()).max().unwrap_or(0) + 4 + side_space;
 
         #[derive(Debug, Clone, Copy)]
         struct BoardCell {
             id: Option<MsgID>,
-            b: u8,
+            ch: char,
         }
         #[derive(Debug, Clone)]
         struct BoardRow {
             line: Option<usize>,
             cells: Vec<BoardCell>,
+            end_str: Option<String>,
         }
         impl BoardRow {
             pub fn recolor<S: MessageSpan>(&mut self, span: S, id: Option<MsgID>) {
                 for i in span.start()..span.end() {
-                    self.cells[i].id = id
+                    if let Some(c) = self.cells.get_mut(i) {
+                        c.id = id;
+                    }
+                }
+            }
+            pub fn write(&mut self, text: &str, start: usize) {
+                for (i, ch) in text.chars().enumerate() {
+                    if let Some(c) = self.cells.get_mut(i + start) {
+                        c.ch = ch;
+                    }
+                }
+            }
+            pub fn write_colored(&mut self, text: &str, start: usize, id: Option<MsgID>) {
+                for (i, ch) in text.chars().enumerate() {
+                    if let Some(c) = self.cells.get_mut(i + start) {
+                        c.ch = ch;
+                        c.id = id;
+                    }
                 }
             }
         }
@@ -219,55 +331,125 @@ where
 
             board.push(BoardRow {
                 line: Some(*line),
-                cells: (" ".repeat(extra_space_left)
+                cells: (Utf32String::from(" ").repeat(side_space)
                     + s
-                    + &" ".repeat(max_line - extra_space_left - s.len()))
-                    .as_bytes()
-                    .iter()
-                    .map(|v| BoardCell { id: None, b: *v })
-                    .collect::<Vec<_>>(),
+                    + Utf32String::from(" ")
+                        .repeat(max_line - side_space - s.len())
+                        .as_utfstr())
+                .chars()
+                .map(|v| BoardCell { id: None, ch: v })
+                .collect::<Vec<_>>(),
+                end_str: None,
             });
 
             for _ in 0..(info.spacing) {
                 board.push(BoardRow {
                     line: None,
-                    cells: vec![BoardCell { id: None, b: b' ' }; max_line],
+                    cells: vec![BoardCell { id: None, ch: ' ' }; max_line],
+                    end_str: None,
                 });
             }
         }
 
-        // struct LineInfo<S> {
-        //     line: usize,
-        //     msgs: Vec<LinearMsg<S>>,
-        // }
-        println!("final lines {:#?}\n-------------------", final_lines);
-        // println!("max {:#?}", max_line);
-        // println!("extra_space_left {:#?}", extra_space_left);
+        let shifted_line = |l: usize| {
+            final_lines
+                .iter()
+                .take_while(|(v, _)| **v != l)
+                .map(|(_, l)| l.spacing + 1)
+                .sum::<usize>()
+        };
+
+        for (line, info) in &final_lines {
+            for &(span, id) in info
+                .multiline_highlights
+                .iter()
+                .chain(&info.underline_highlights)
+            {
+                board[shifted_line(*line)].recolor(span.plus(side_space), Some(id));
+            }
+        }
+
+        for MultilineCommand {
+            start_line,
+            end_line,
+            msg,
+            id,
+            depth,
+            side_height,
+        } in multiline_commands
+        {
+            let horiz = side_space - side_height * 2 - 3;
+            let start_line = shifted_line(start_line);
+            let end_line = shifted_line(end_line);
+
+            #[allow(clippy::needless_range_loop)]
+            for i in (start_line + 1)..end_line {
+                let spacing = board[i].line.is_none();
+                board[i].write_colored(if spacing { "┆" } else { "│" }, horiz, Some(id));
+            }
+
+            board[start_line].write_colored("╭▶", horiz, Some(id));
+            board[end_line].write_colored("├▶", horiz, Some(id));
+
+            for i in 0..depth {
+                board[end_line + i + 1].write_colored("│", horiz, Some(id))
+            }
+            {
+                let line = &mut board[end_line + depth + 1];
+                line.write_colored("╰──", horiz, Some(id));
+                line.cells.truncate(horiz + 3);
+                line.end_str = Some(msg)
+            }
+        }
+
+        for UnderlineCommand {
+            line,
+            span,
+            msg,
+            id,
+            depth,
+            connector_pos,
+        } in underline_commands
+        {
+            let line = shifted_line(line) + 1;
+            board[line].write_colored(&"─".repeat(span.len()), span.start() + side_space, Some(id));
+            board[line].write("┬", connector_pos + side_space);
+            for i in 0..(depth - 1) {
+                board[line + i + 1].write_colored("│", connector_pos + side_space, Some(id))
+            }
+            let arm = connector_pos + side_space;
+            {
+                let line = &mut board[line + depth];
+                line.write_colored("╰──", arm, Some(id));
+                line.cells.truncate(arm + 3);
+                line.end_str = Some(msg)
+            }
+        }
+
+        let max_line_num_len = (final_lines.last_key_value().unwrap().0 + 1).ilog10() as usize + 1;
+        let empty_pad = " ".repeat(max_line_num_len + 3);
 
         for row in board {
             println!(
-                "{}",
-                // line,
+                "   {}{} {}",
+                row.line
+                    .map(|v| format!("{:>max_line_num_len$}.  ", v + 1)
+                        .dimmed()
+                        .to_string())
+                    .unwrap_or(empty_pad.clone()),
                 row.cells
                     .iter()
                     .map(|c| {
                         if let Some(id) = c.id {
                             let (r, g, b) = colors[id.0];
-                            (c.b as char).to_string().truecolor(r, g, b).to_string()
+                            c.ch.to_string().truecolor(r, g, b).to_string()
                         } else {
-                            (c.b as char).to_string()
+                            c.ch.to_string()
                         }
                     })
-                    .collect::<String>()
+                    .collect::<String>(),
+                row.end_str.unwrap_or("".into()),
             )
-            // println!("{:?}", i);
         }
-
-        struct DrawInfo {}
-
-        // println!(
-        //     "aa{}b",
-        //     format!("gge{}azzzzz", format!("br{}h", "lol".bright_green()).bright_red()).bright_green()
-        // );
     }
 }
