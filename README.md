@@ -13,9 +13,14 @@ support for single-line and multi-line highlighting.
 
 ```rust
 use colored::Colorize;
-use lyneate::report::Report;
+use lyneate::Report;
 
 fn main() {
+    println!(
+        "{} Mismatched match expression branch return types\n",
+        "Error:".bright_red()
+    );
+
     let report = Report::new_char_spanned(
         include_str!("basic.pseudo"),
         [
@@ -39,7 +44,6 @@ fn main() {
 
     report.display();
 }
-
 ```
 
 ## Usage
