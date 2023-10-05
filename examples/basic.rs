@@ -2,6 +2,11 @@ use colored::Colorize;
 use lyneate::report::Report;
 
 fn main() {
+    println!(
+        "{} Mismatched match expression branch return types\n",
+        "Error:".bright_red()
+    );
+
     let report = Report::new_char_spanned(
         include_str!("basic.pseudo"),
         [
