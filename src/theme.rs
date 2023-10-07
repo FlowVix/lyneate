@@ -115,7 +115,6 @@ impl Default for ThemeEffects {
             line_numbers: |s| s.dimmed().to_string(),
             unhighlighted: |s| s.to_string(),
         }
-        // Self::box_drawing_chars()
     }
 }
 impl ThemeEffects {

@@ -25,17 +25,17 @@ fn main() {
         include_str!("basic.pseudo"),
         [
             (
-                22..104,
+                29..102,
                 format!("{}", "In this match expression".dimmed()),
                 (255, 64, 112),
             ),
             (
-                52..58,
+                64..75,
                 format!("{} {}", "This is of type".dimmed(), "int".bright_white()),
                 (255, 159, 64),
             ),
             (
-                95..100,
+                87..92,
                 format!("{} {}", "This is of type".dimmed(), "string".bright_white()),
                 (207, 255, 64),
             ),
@@ -46,9 +46,14 @@ fn main() {
 }
 ```
 
+[More examples](https://github.com/FlowVix/lyneate/blob/master/examples/)
+
 ## Usage
 
-This crate provides the `Report` struct which takes the source code and an iterator over the span, text, and color of all messages.
+This crate provides:
+
+-   the `Report` struct which takes the source code and an iterator over the span, text, and color of all messages
+-   the `Theme`, `ThemeChars`, `ThemeEffects`, and `ThemeSizing` structs which can be used to customize the appearance of a report display
 
 Code spans can be byte-aligned or char-aligned. Different methods for constructing a `Report` for either are provided.
 
@@ -58,5 +63,4 @@ about the provenance of the source code.
 
 ## Planned Features
 
--   More customizability of the shape and style of the displayed reports.
 -   Colorless support.
