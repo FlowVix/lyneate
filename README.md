@@ -9,7 +9,7 @@ support for single-line and multi-line highlighting.
 
 ## [Example](https://github.com/FlowVix/lyneate/blob/master/examples/basic.rs)
 
-<img src="https://github.com/FlowVix/lyneate/blob/master/examples/example.png?raw=true" alt="test"/>
+<img src="https://github.com/FlowVix/lyneate/blob/master/images/example.png?raw=true" alt="test"/>
 
 ```rust
 use colored::Colorize;

@@ -1,5 +1,5 @@
 use colored::Colorize;
-use lyneate::Report;
+use lyneate::{Report, Theme, ThemeChars, ThemeSizing};
 
 fn main() {
     println!(
@@ -26,7 +26,16 @@ fn main() {
                 (207, 255, 64),
             ),
         ],
-    );
+    )
+    .with_theme(Theme {
+        sizing: ThemeSizing {
+            pre_line_number_padding: 5,
+            underline_arm_length: 10,
+            ..Default::default()
+        },
+        chars: ThemeChars::ascii(),
+        ..Default::default()
+    });
 
     report.display();
 }

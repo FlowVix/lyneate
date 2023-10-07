@@ -1,5 +1,25 @@
 use colored::Colorize;
 
+/// Theme defining the characters used different components of the report display.
+///
+/// ```rust
+/// ThemeChars {
+///     underline: 'α',
+///     underline_junction: 'β',
+///     underline_vertical: 'γ',
+///     side_vertical: 'δ',
+///     side_vertical_dotted: 'ε',
+///     side_pointer: 'ζ',
+///     side_pointer_line: 'η',
+///     side_junction: 'θ',
+///     bottom_curve: 'κ',
+///     top_curve: 'λ',
+///     msg_pointer: 'μ',
+///     msg_line: 'ν',
+/// }
+/// ```
+/// <img src="https://github.com/FlowVix/lyneate/blob/master/images/chars.png?raw=true" alt="test"/>
+///
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ThemeChars {
     pub underline: char,
@@ -19,12 +39,17 @@ pub struct ThemeChars {
     pub msg_line: char,
 }
 
+/// Theme defining string callbacks applied to different parts of the report display.
+///
+/// For example, you can use this in conjuction with terminal color crates
+/// to make line numbers display with color or other effects.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ThemeEffects {
     pub line_numbers: fn(&str) -> String,
     pub unhighlighted: fn(&str) -> String,
 }
 
+/// Theme defining the different lengths and paddings of the report display.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ThemeSizing {
     pub pre_line_number_padding: usize,
@@ -36,6 +61,7 @@ pub struct ThemeSizing {
     pub side_pointer_length: usize,
 }
 
+/// A collection of the themes to be used when displaying a report.
 #[derive(Default, Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Theme {
     pub chars: ThemeChars,

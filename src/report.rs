@@ -584,9 +584,12 @@ where
         let max_line_num_len = (final_lines.last_key_value().unwrap().0 + 1).ilog10() as usize + 1;
         let empty_pad = format!("{} ", " ".repeat(max_line_num_len));
 
+        let pre_pad = " ".repeat(self.theme.sizing.pre_line_number_padding);
+
         for row in board {
             println!(
-                "   {}  {} {}",
+                "{}{}  {} {}",
+                pre_pad,
                 row.line
                     .map(|v| (self.theme.effects.line_numbers)(&format!(
                         "{:>max_line_num_len$}.",
