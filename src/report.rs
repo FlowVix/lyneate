@@ -52,8 +52,8 @@ where
         self
     }
 
-    /// Prettily displays the code report.
-    pub fn display(self) {
+    /// Returns the string of the pretty report display
+    pub fn display_str(self) -> String {
         #[derive(Debug, Clone, Copy)]
         struct LineInfo<'a> {
             line: &'a Utf32Str,
@@ -586,9 +586,11 @@ where
 
         let pre_pad = " ".repeat(self.theme.sizing.pre_line_number_padding);
 
+        let mut s = String::new();
+
         for row in board {
-            println!(
-                "{}{}  {} {}",
+            s += &format!(
+                "{}{}  {} {}\n",
                 pre_pad,
                 row.line
                     .map(|v| (self.theme.effects.line_numbers)(&format!(
@@ -609,5 +611,12 @@ where
                 row.end_str.unwrap_or("".into()),
             )
         }
+        s.truncate(s.len() - 1);
+        s
+    }
+
+    /// Prettily displays the code report.
+    pub fn display(self) {
+        println!("{}", self.display_str())
     }
 }
