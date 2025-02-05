@@ -11,17 +11,17 @@ fn main() {
         include_str!("basic.pseudo"),
         [
             (
-                29..102,
+                23..91,
                 format!("{}", "In this match expression".dimmed()),
                 (255, 64, 112),
             ),
             (
-                64..75,
+                56..67,
                 format!("{} {}", "This is of type".dimmed(), "int".bright_white()),
                 (255, 159, 64),
             ),
             (
-                87..92,
+                78..83,
                 format!("{} {}", "This is of type".dimmed(), "string".bright_white()),
                 (207, 255, 64),
             ),
